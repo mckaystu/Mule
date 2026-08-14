@@ -9,6 +9,7 @@ APM platforms:
   * Grafana Cloud
   * Dynatrace
   * Splunk Observability Cloud
+  * SigNoz (Cloud or self-hosted)
   * Any custom OTLP/HTTP collector (Grafana Alloy, OpenTelemetry Collector, etc.)
 
 Two metric streams share one OTLP pipeline:
@@ -125,7 +126,7 @@ Edit mule.yaml:
           password: "password"
 
   exporter:
-    backend: honeycomb   # honeycomb | grafana | dynatrace | splunk | custom
+    backend: honeycomb   # honeycomb | grafana | dynatrace | splunk | signoz | custom
     timeout: 10s
     honeycomb:
       api_key: "YOUR_HONEYCOMB_INGEST_API_KEY"
@@ -192,6 +193,9 @@ exporter.dynatrace.*
 exporter.splunk.*
   - Purpose: realm + access_token
 
+exporter.signoz.*
+  - Purpose: region + ingestion_key (Cloud) or endpoint (self-hosted)
+
 exporter.timeout
   - Default: 10s
   - Purpose: OTLP push deadline
@@ -249,6 +253,25 @@ Set exporter.backend and fill ONLY that vendor block.
 
   Resolves to https://ingest.{realm}.signalfx.com/v2/datapoint/otlp with 
   header X-SF-Token.
+
+--- SIGNOZ ---
+  Cloud (Settings -> Ingestion for region + key):
+
+  exporter:
+    backend: signoz
+    signoz:
+      region: "us"   # us | eu | in | ...
+      ingestion_key: "YOUR_SIGNOZ_INGESTION_KEY"
+
+  Resolves to https://ingest.{region}.signoz.cloud:443/v1/metrics with 
+  header signoz-ingestion-key.
+
+  Self-hosted (OTLP/HTTP on :4318, no ingestion key):
+
+  exporter:
+    backend: signoz
+    signoz:
+      endpoint: "http://127.0.0.1:4318"
 
 --- CUSTOM (Alloy / OTel Collector / other) ---
   exporter:

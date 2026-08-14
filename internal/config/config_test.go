@@ -321,6 +321,37 @@ metrics: { prefix: domino }
 			header:  "X-SF-Token",
 			wantVal: "sfx_test",
 		},
+		{
+			name: "signoz_cloud",
+			yaml: `
+source: { file_path: "/tmp/s.json", poll_interval: 60s }
+exporter:
+  backend: signoz
+  signoz:
+    region: "us"
+    ingestion_key: "sz_test_key"
+metrics: { prefix: domino }
+`,
+			backend: "signoz",
+			url:     "https://ingest.us.signoz.cloud:443/v1/metrics",
+			header:  "signoz-ingestion-key",
+			wantVal: "sz_test_key",
+		},
+		{
+			name: "signoz_self_hosted",
+			yaml: `
+source: { file_path: "/tmp/s.json", poll_interval: 60s }
+exporter:
+  backend: signoz
+  signoz:
+    endpoint: "http://127.0.0.1:4318"
+metrics: { prefix: domino }
+`,
+			backend: "signoz",
+			url:     "http://127.0.0.1:4318/v1/metrics",
+			header:  "",
+			wantVal: "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -342,6 +373,9 @@ metrics: { prefix: domino }
 			}
 			if u != tc.url {
 				t.Fatalf("url=%q want %q", u, tc.url)
+			}
+			if tc.header == "" {
+				return
 			}
 			got := ""
 			for k, v := range cfg.Exporter.Headers {

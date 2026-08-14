@@ -33,6 +33,7 @@ const (
 	BackendGrafana    = "grafana"
 	BackendDynatrace  = "dynatrace"
 	BackendSplunk     = "splunk"
+	BackendSignOz     = "signoz"
 	BackendCustom     = "custom"
 )
 
@@ -109,7 +110,7 @@ type PrometheusTarget struct {
 }
 
 // ExporterConfig controls the HTTP/OTLP push target.
-// Set backend to honeycomb|grafana|dynatrace|splunk|custom and fill that vendor block.
+// Set backend to honeycomb|grafana|dynatrace|splunk|signoz|custom and fill that vendor block.
 type ExporterConfig struct {
 	// Backend selects a vendor preset. Empty defaults to honeycomb when honeycomb
 	// credentials are present, otherwise custom/raw endpoint settings.
@@ -126,6 +127,7 @@ type ExporterConfig struct {
 	Grafana   *GrafanaExporter   `yaml:"grafana"`
 	Dynatrace *DynatraceExporter `yaml:"dynatrace"`
 	Splunk    *SplunkExporter    `yaml:"splunk"`
+	SignOz    *SignOzExporter    `yaml:"signoz"`
 }
 
 // BasicAuthConfig is HTTP Basic credentials for the OTLP exporter.
@@ -159,6 +161,16 @@ type SplunkExporter struct {
 	Realm        string `yaml:"realm"`         // e.g. us0 → ingest.us0.signalfx.com
 	Endpoint     string `yaml:"endpoint"`      // optional full host override
 	AccessToken  string `yaml:"access_token"`
+}
+
+// SignOzExporter is SigNoz Cloud or self-hosted OTLP settings.
+type SignOzExporter struct {
+	// Region is the SigNoz Cloud region (us, eu, in, …) → https://ingest.{region}.signoz.cloud:443
+	Region string `yaml:"region"`
+	// Endpoint overrides the host (self-hosted http://host:4318 or full cloud URL).
+	Endpoint string `yaml:"endpoint"`
+	// IngestionKey sets the signoz-ingestion-key header (required for SigNoz Cloud).
+	IngestionKey string `yaml:"ingestion_key"`
 }
 
 // MetricsConfig controls OTLP naming and which Domino keys are kept.
@@ -382,6 +394,9 @@ func (e *ExporterConfig) resolveBackend() {
 	case BackendSplunk, "signalfx", "o11y":
 		e.Backend = BackendSplunk
 		e.applySplunk()
+	case BackendSignOz, "sz":
+		e.Backend = BackendSignOz
+		e.applySignOz()
 	case BackendCustom, "":
 		e.Backend = BackendCustom
 	default:
@@ -403,6 +418,9 @@ func (e *ExporterConfig) inferBackend() string {
 	if e.Splunk != nil && (strings.TrimSpace(e.Splunk.AccessToken) != "" || strings.TrimSpace(e.Splunk.Realm) != "") {
 		return BackendSplunk
 	}
+	if e.SignOz != nil && (strings.TrimSpace(e.SignOz.IngestionKey) != "" || strings.TrimSpace(e.SignOz.Region) != "" || strings.TrimSpace(e.SignOz.Endpoint) != "") {
+		return BackendSignOz
+	}
 	host := strings.ToLower(strings.TrimSpace(e.Endpoint))
 	switch {
 	case strings.Contains(host, "honeycomb.io"):
@@ -413,6 +431,8 @@ func (e *ExporterConfig) inferBackend() string {
 		return BackendDynatrace
 	case strings.Contains(host, "signalfx.com"), strings.Contains(host, "splunkcloud.com"):
 		return BackendSplunk
+	case strings.Contains(host, "signoz.cloud"), strings.Contains(host, "signoz.io"):
+		return BackendSignOz
 	case host != "":
 		return BackendCustom
 	default:
@@ -497,6 +517,23 @@ func (e *ExporterConfig) applySplunk() {
 	}
 	if tok := strings.TrimSpace(e.Splunk.AccessToken); tok != "" {
 		e.setHeaderIfAbsent("X-SF-Token", tok)
+	}
+}
+
+func (e *ExporterConfig) applySignOz() {
+	if e.SignOz == nil {
+		return
+	}
+	if ep := strings.TrimSpace(e.SignOz.Endpoint); ep != "" && strings.TrimSpace(e.Endpoint) == "" {
+		e.Endpoint = strings.TrimRight(ep, "/")
+	} else if region := strings.TrimSpace(e.SignOz.Region); region != "" && strings.TrimSpace(e.Endpoint) == "" {
+		e.Endpoint = "https://ingest." + region + ".signoz.cloud:443"
+	}
+	if strings.TrimSpace(e.Path) == "" {
+		e.Path = DefaultExporterPath
+	}
+	if key := strings.TrimSpace(e.SignOz.IngestionKey); key != "" {
+		e.setHeaderIfAbsent("signoz-ingestion-key", key)
 	}
 }
 
@@ -611,9 +648,9 @@ func compileRegexes(field string, patterns []string) ([]*regexp.Regexp, error) {
 
 func (c *Config) validate() error {
 	switch c.Exporter.ResolvedBackend() {
-	case BackendHoneycomb, BackendGrafana, BackendDynatrace, BackendSplunk, BackendCustom:
+	case BackendHoneycomb, BackendGrafana, BackendDynatrace, BackendSplunk, BackendSignOz, BackendCustom:
 	default:
-		return fmt.Errorf("exporter.backend must be one of honeycomb, grafana, dynatrace, splunk, custom (got %q)", c.Exporter.Backend)
+		return fmt.Errorf("exporter.backend must be one of honeycomb, grafana, dynatrace, splunk, signoz, custom (got %q)", c.Exporter.Backend)
 	}
 	if strings.TrimSpace(c.Exporter.Endpoint) == "" {
 		return fmt.Errorf("exporter.endpoint is required (set exporter.backend or exporter.endpoint)")
@@ -630,6 +667,14 @@ func (c *Config) validate() error {
 	case BackendSplunk:
 		if _, ok := headerLookup(c.Exporter.Headers, "X-SF-Token"); !ok {
 			return fmt.Errorf("exporter.splunk requires access_token")
+		}
+	case BackendSignOz:
+		// Cloud requires an ingestion key; self-hosted (plain endpoint) does not.
+		isCloud := strings.Contains(strings.ToLower(c.Exporter.Endpoint), "signoz.cloud")
+		if isCloud {
+			if _, ok := headerLookup(c.Exporter.Headers, "signoz-ingestion-key"); !ok {
+				return fmt.Errorf("exporter.signoz requires ingestion_key for SigNoz Cloud")
+			}
 		}
 	}
 	if c.Source.PollInterval.Duration() < time.Second {

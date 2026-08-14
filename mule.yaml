@@ -21,7 +21,7 @@ source:
         username: "metrics"
         password: "password"
 
-# Pick one: honeycomb | grafana | dynatrace | splunk | custom
+# Pick one: honeycomb | grafana | dynatrace | splunk | signoz | custom
 exporter:
   backend: honeycomb
   timeout: 10s
@@ -45,6 +45,13 @@ exporter:
   # splunk:
   #   realm: "us0"
   #   access_token: "YOUR_SPLUNK_INGEST_TOKEN"
+
+  # backend: signoz
+  # signoz:
+  #   region: "us"   # us | eu | in | …
+  #   ingestion_key: "YOUR_SIGNOZ_INGESTION_KEY"
+  # Self-hosted SigNoz (no key):
+  #   endpoint: "http://127.0.0.1:4318"
 
   # backend: custom
   # endpoint: "http://127.0.0.1:4318"

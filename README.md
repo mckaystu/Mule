@@ -12,6 +12,7 @@ Ultra-lightweight Go sidecar that bridges **HCL Domino** to OTLP-compliant APM p
 - Grafana Cloud
 - Dynatrace
 - Splunk Observability Cloud
+- SigNoz (Cloud or self-hosted)
 - Any custom OTLP/HTTP collector (Grafana Alloy, OpenTelemetry Collector, etc.)
 
 Two metric streams share one OTLP pipeline:
@@ -123,7 +124,7 @@ source:
         password: "password"
 
 exporter:
-  backend: honeycomb   # honeycomb | grafana | dynatrace | splunk | custom
+  backend: honeycomb   # honeycomb | grafana | dynatrace | splunk | signoz | custom
   timeout: 10s
   honeycomb:
     api_key: "YOUR_HONEYCOMB_INGEST_API_KEY"
@@ -161,6 +162,7 @@ resource:
 | `exporter.grafana.*` | — | OTLP gateway + instance_id + token |
 | `exporter.dynatrace.*` | — | environment_id + api_token |
 | `exporter.splunk.*` | — | realm + access_token |
+| `exporter.signoz.*` | — | region + ingestion_key (Cloud) or endpoint (self-hosted) |
 | `exporter.timeout` | `10s` | OTLP push deadline |
 | `metrics.include_patterns` | — | Allow-list for StatPub keys **and** Keep metric names |
 | `metrics.counters` | — | Cumulative Domino keys (delta export) |
@@ -221,6 +223,29 @@ exporter:
 ```
 
 Resolves to `https://ingest.{realm}.signalfx.com/v2/datapoint/otlp` with header `X-SF-Token`.
+
+### SigNoz
+
+**Cloud** (Settings → Ingestion for region + key):
+
+```yaml
+exporter:
+  backend: signoz
+  signoz:
+    region: "us"   # us | eu | in | …
+    ingestion_key: "YOUR_SIGNOZ_INGESTION_KEY"
+```
+
+Resolves to `https://ingest.{region}.signoz.cloud:443/v1/metrics` with header `signoz-ingestion-key`.
+
+**Self-hosted** (OTLP/HTTP on `:4318`, no ingestion key):
+
+```yaml
+exporter:
+  backend: signoz
+  signoz:
+    endpoint: "http://127.0.0.1:4318"
+```
 
 ### Custom (Alloy / OTel Collector / other)
 
