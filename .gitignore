@@ -1,0 +1,12 @@
+/bin/
+/*.exe
+/*.test
+/coverage.out
+/.idea/
+/.vscode/
+.DS_Store
+*.log
+.env
+.env.*
+mule.local.yaml
+*.local.yaml

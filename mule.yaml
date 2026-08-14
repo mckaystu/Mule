@@ -1,0 +1,76 @@
+# Domino Mule — Windows + Domino Keep + OTLP backends
+# Prefer forward slashes in YAML paths (works on Windows & Linux).
+
+source:
+  # 1. Native Domino StatPub JSON
+  statpub:
+    enabled: true
+    file_path: "D:/Domino/Data/domino_stats.json"
+    poll_interval: 60s
+    prune: true
+
+  # 2. Domino Keep Prometheus (port 8890) — HTTPS + Basic auth required
+  prometheus:
+    enabled: true
+    targets:
+      - name: "domino_keep"
+        url: "https://127.0.0.1:8890/metrics"
+        poll_interval: 15s
+        timeout: 5s
+        insecure: true
+        username: "metrics"
+        password: "password"
+
+# Pick one: honeycomb | grafana | dynatrace | splunk | custom
+exporter:
+  backend: honeycomb
+  timeout: 10s
+
+  honeycomb:
+    api_key: "YOUR_HONEYCOMB_INGEST_API_KEY"
+    # dataset: "domino"
+
+  # backend: grafana
+  # grafana:
+  #   endpoint: "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+  #   instance_id: "123456"
+  #   token: "glc_eyJ...."
+
+  # backend: dynatrace
+  # dynatrace:
+  #   environment_id: "abc12345"
+  #   api_token: "dt0c01...."
+
+  # backend: splunk
+  # splunk:
+  #   realm: "us0"
+  #   access_token: "YOUR_SPLUNK_INGEST_TOKEN"
+
+  # backend: custom
+  # endpoint: "http://127.0.0.1:4318"
+  # path: "/v1/metrics"
+
+metrics:
+  prefix: "domino"
+  include_patterns:
+    - "^HTTP\\..*"            # Http.Workers, Http.Worker.Total.RequestsProcessed
+    - "^Domino\\..*"          # Domino.Requests.Total, Domino.Command.Total
+    - "^Agent\\..*"           # Agent Manager
+    - "^Database\\.DbCache.*" # DbCache hits/lookups
+    - "^Server\\.Tasks.*"     # Server Tasks
+    - "^http_.*"              # Keep REST API
+    - "^jvm_.*"               # Keep JVM memory
+    - "^vertx_.*"             # Keep Vert.x events
+  counters:
+    - "Server.Trans.Total"
+    - "Mail.TotalDelivered"
+    - "Mail.TotalRouted"
+    - "Domino.Requests.Total"
+    - "Domino.Command.Total"
+
+resource:
+  service_name: domino-mule
+  service_version: "1.0.0"
+  attributes:
+    domino.server: "domino.app01"
+    deployment.environment: "production"
