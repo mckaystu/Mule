@@ -1,4 +1,7 @@
-# Domino Mule (`domino-mule`)
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/c27187c3-f0de-49fc-a2c7-d48fe49cde7a" />
+
+
+# Mule (`mule`)
 
 Ultra-lightweight Go sidecar that bridges **HCL Domino** to OTLP-compliant APM platforms:
 
