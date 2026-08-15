@@ -297,7 +297,22 @@ Windows Command Prompt / PowerShell:
   .\bin\domino-mule.exe -config mule.yaml
   .\bin\domino-mule.exe -config mule.yaml --dry-run -v
 
-Graceful shutdown on Ctrl+C / SIGINT / SIGTERM.
+Windows service (elevated PowerShell, no NSSM):
+  .\domino-mule.exe -config mule.yaml -service install
+  .\domino-mule.exe -service start
+  .\domino-mule.exe -service stop
+  .\domino-mule.exe -service uninstall
+
+  Creates service name DominoMule (display name Domino Mule). Logs go to
+  mule.log next to the exe. Also visible in services.msc.
+
+  Get-Service DominoMule
+  Get-Content D:\Mule\mule.log -Tail 40
+
+  Do not install with --dry-run. Install/uninstall require Administrator.
+
+Graceful shutdown on Ctrl+C / SIGINT / SIGTERM, and on Windows service
+Stop / Shutdown.
 
 Startup logs include otlp_backend and otlp_endpoint. A healthy export looks like:
   exported metrics recorded=... input=...
@@ -305,10 +320,12 @@ Startup logs include otlp_backend and otlp_endpoint. A healthy export looks like
 
 PACKAGING ON A DOMINO SERVER:
 -----------------------------
-1. Copy domino-mule.exe and mule.yaml to a folder (e.g. D:\Mule\data).
+1. Copy domino-mule.exe and mule.yaml to a folder (e.g. D:\Mule).
 2. Set STATPUB_URI and Keep credentials as above.
 3. Put a real ingest/API token in the chosen exporter.* block.
-4. Run from that folder so -config mule.yaml resolves locally.
+4. From an elevated prompt:
+     .\domino-mule.exe -config mule.yaml -service install
+     .\domino-mule.exe -service start
 
 
 ===============================================================================

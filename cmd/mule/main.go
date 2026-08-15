@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,27 +18,101 @@ import (
 	muleotel "github.com/hcl/domino-mule/internal/otel"
 )
 
+type options struct {
+	configPath string
+	dryRun     bool
+	verbose    bool
+	logPath    string
+	service    string
+}
+
 func main() {
 	os.Exit(run())
 }
 
 func run() int {
+	opt := parseOptions()
+
+	if handled, code := serviceCommand(opt); handled {
+		return code
+	}
+	if runningAsWindowsService() {
+		return runWindowsService(opt)
+	}
+
+	log, closer, err := openLogger(opt, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "open log:", err)
+		return 1
+	}
+	defer closer()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runForever(ctx, opt, log)
+}
+
+func parseOptions() options {
 	configPath := flag.String("config", "mule.yaml", "path to mule.yaml")
 	dryRun := flag.Bool("dry-run", false, "print transformed metrics to stdout via stdoutmetric (no OTLP HTTP)")
 	verbose := flag.Bool("v", false, "verbose (debug) logging")
+	logPath := flag.String("log", "", "log file (default: stdout; Windows service default: mule.log next to the exe)")
+	service := flag.String("service", "", "Windows service command: install, uninstall, start, or stop")
 	flag.Parse()
+	return options{
+		configPath: *configPath,
+		dryRun:     *dryRun,
+		verbose:    *verbose,
+		logPath:    *logPath,
+		service:    *service,
+	}
+}
 
+func openLogger(opt options, asService bool) (*slog.Logger, func(), error) {
 	logLevel := slog.LevelInfo
-	if *verbose {
+	if opt.verbose {
 		logLevel = slog.LevelDebug
 	}
-	logOut := os.Stdout
-	if *dryRun {
-		logOut = os.Stderr
-	}
-	log := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: logLevel}))
 
-	cfg, err := config.Load(*configPath)
+	logPath := opt.logPath
+	if logPath == "" && asService {
+		logPath = defaultServiceLogPath()
+	}
+
+	var out io.Writer = os.Stdout
+	if opt.dryRun && logPath == "" {
+		out = os.Stderr
+	}
+
+	closer := func() {}
+	if logPath != "" {
+		logPath = config.NormalizePath(logPath)
+		if dir := filepath.Dir(logPath); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, nil, err
+			}
+		}
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = f
+		closer = func() { _ = f.Close() }
+	}
+
+	return slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: logLevel})), closer, nil
+}
+
+func defaultServiceLogPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "mule.log"
+	}
+	return filepath.Join(filepath.Dir(exe), "mule.log")
+}
+
+func runForever(ctx context.Context, opt options, log *slog.Logger) int {
+	cfg, err := config.Load(opt.configPath)
 	if err != nil {
 		log.Error("load config", "err", err)
 		return 1
@@ -51,15 +126,12 @@ func run() int {
 		defer func() { _ = os.Remove(cfg.PIDFile) }()
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	sink, err := muleotel.NewExporter(ctx, cfg, log, *dryRun)
+	sink, err := muleotel.NewExporter(ctx, cfg, log, opt.dryRun)
 	if err != nil {
 		log.Error("init metric exporter", "err", err)
 		return 1
 	}
-	if *dryRun {
+	if opt.dryRun {
 		log.Info("dry-run enabled; metrics will print to stdout via stdoutmetric (no OTLP)")
 	}
 	defer func() {
@@ -75,7 +147,7 @@ func run() int {
 
 	endpointURL, _ := cfg.Exporter.EndpointURL()
 	log.Info("domino-mule started",
-		"config", *configPath,
+		"config", opt.configPath,
 		"stats_file", cfg.Source.FilePath,
 		"statpub", cfg.StatPubEnabled(),
 		"poll_interval", cfg.Source.PollInterval.Duration().String(),
@@ -86,7 +158,8 @@ func run() int {
 		"export_timeout", cfg.Exporter.Timeout.Duration().String(),
 		"otlp_endpoint", endpointURL,
 		"otlp_backend", cfg.Exporter.ResolvedBackend(),
-		"dry_run", *dryRun,
+		"dry_run", opt.dryRun,
+		"windows_service", runningAsWindowsService(),
 	)
 	if cfg.PrometheusEnabled() {
 		for _, t := range cfg.Scrapes {
